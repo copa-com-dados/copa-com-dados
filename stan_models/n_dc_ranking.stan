@@ -7,10 +7,11 @@ data {
   array[N] int y_j;
   vector[N] game_weight;
   vector[T] prior_strength;
+  array[N] int is_home;
 }
 
 parameters {
-  vector[T] attack_raw_std; 
+  vector[T] attack_raw_std;
   vector[T] defense_raw_std;
   real eta;
   real<lower=-0.5, upper=0.5> rho;
@@ -18,6 +19,7 @@ parameters {
   real<lower=0.01> sigma_def;
   real beta_prior;
   real alpha_prior;
+  real beta_home;
 }
 
 transformed parameters {
@@ -39,9 +41,10 @@ model {
   rho ~ normal(0, 0.1);
   sigma_att ~ cauchy(0, 2.5);
   sigma_def ~ cauchy(0, 2.5);
+  beta_home ~ normal(0, 0.5);
 
   for (n in 1:N) {
-    real mu = exp(attack[team_i[n]] - defense[team_j[n]] + eta);
+    real mu = exp(attack[team_i[n]] - defense[team_j[n]] + eta + beta_home * is_home[n]);
     real lambda = exp(attack[team_j[n]] - defense[team_i[n]] + eta);
     real log_prob = poisson_lpmf(y_i[n] | mu)
       + poisson_lpmf(y_j[n] | lambda);

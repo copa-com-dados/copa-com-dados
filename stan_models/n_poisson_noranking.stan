@@ -7,6 +7,7 @@ data {
   array[N] int y_j;
   vector[N] game_weight;
   vector[T] prior_strength;
+  array[N] int is_home;
 }
 
 parameters {
@@ -16,6 +17,7 @@ parameters {
   real<lower=0.01> sigma_att;
   real<lower=0.01> sigma_def;
   real beta_prior;
+  real beta_home;
 }
 
 transformed parameters {
@@ -30,11 +32,12 @@ model {
   beta_prior ~ normal(0, 1);
   sigma_att ~ cauchy(0, 2.5);
   sigma_def ~ cauchy(0, 2.5);
+  beta_home ~ normal(0, 0.5);
 
   for (n in 1:N) {
     target += game_weight[n] * (
       poisson_log_lpmf(
-        y_i[n] | attack[team_i[n]] - defense[team_j[n]] + eta
+        y_i[n] | attack[team_i[n]] - defense[team_j[n]] + eta + beta_home * is_home[n]
       )
       + poisson_log_lpmf(
         y_j[n] | attack[team_j[n]] - defense[team_i[n]] + eta

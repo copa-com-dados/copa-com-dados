@@ -34,11 +34,20 @@ class BayesianDixonColesModel(BaseDixonColesMatchModel):
             loaded["rho"] if "rho" in loaded.files else None
         )
 
+        self._beta_home_draws: NDArray | None = (
+            loaded["beta_home"] if "beta_home" in loaded.files else None
+        )
+
         self._attack_mean = self._attack_draws.mean(axis=0)
         self._defense_mean = self._defense_draws.mean(axis=0)
         self._eta_mean = float(self._eta_draws.mean())
         self._rho_mean = (
             float(self._rho_draws.mean()) if self._rho_draws is not None else 0.0
+        )
+        self._beta_home_mean = (
+            float(self._beta_home_draws.mean())
+            if self._beta_home_draws is not None
+            else 0.0
         )
         self._team_idx: dict[str, int] = {t: i for i, t in enumerate(self.teams)}
 
@@ -56,6 +65,8 @@ class BayesianDixonColesModel(BaseDixonColesMatchModel):
         }
         if self._rho_draws is not None:
             out["rho"] = self._rho_draws
+        if self._beta_home_draws is not None:
+            out["beta_home"] = self._beta_home_draws
         return out
 
     # ── BaseDixonColesMatchModel interface ───────────────────────────────────
@@ -72,8 +83,8 @@ class BayesianDixonColesModel(BaseDixonColesMatchModel):
         return self._rho_mean
 
     def get_home_effect(self) -> float:
-        # Stan uses a symmetric eta offset; no asymmetric home multiplier.
-        return 1.0
+        """Home advantage as a multiplicative factor on expected goals."""
+        return float(np.exp(self._beta_home_mean))
 
     def match_probs(
         self,
@@ -87,9 +98,19 @@ class BayesianDixonColesModel(BaseDixonColesMatchModel):
         """Score-probability matrix using posterior-mean Stan parameterization."""
         hi = self._team_idx[home]
         ai = self._team_idx[away]
+        home_offset = 0.0
+        if not neutral:
+            home_offset = self._beta_home_mean
+        elif home_boost > 0:
+            home_offset = self._beta_home_mean * home_boost
         hl = (
             float(
-                np.exp(self._attack_mean[hi] - self._defense_mean[ai] + self._eta_mean)
+                np.exp(
+                    self._attack_mean[hi]
+                    - self._defense_mean[ai]
+                    + self._eta_mean
+                    + home_offset
+                )
             )
             * lambda_scale
         )

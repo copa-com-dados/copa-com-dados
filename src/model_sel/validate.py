@@ -27,6 +27,7 @@ def train_and_save(
         "y_j": df["away_score"].values.astype(int),
         "game_weight": df["game_weight"].values,
         "prior_strength": ranking_priors,
+        "is_home": (~df["neutral"].values).astype(int),
     }
 
     stan_model = CmdStanModel(stan_file=stan_file, exe_file=exe_file)
