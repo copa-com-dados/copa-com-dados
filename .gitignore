@@ -213,8 +213,10 @@ __marimo__/
 # Stan compiled binaries (no extension, executable)
 stan_models/n_poisson_ranking
 
-# Posterior samples
-data/outputs/models
-
 # Intermediate files generated during simulation
 data/new_results.csv
+
+# Local per-phase snapshot metrics (CSV-only analysis outputs)
+analysis/artifacts/snapshots/**/*.csv
+# Local results and models 
+analysis/.runtime

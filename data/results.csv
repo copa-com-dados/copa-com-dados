@@ -1,6 +1,6 @@
 date,home_team,away_team,home_score,away_score,tournament,city,country,neutral
-7/19/2026,Spain,Argentina,,,FIFA World Cup,East Rutherford,United States,True
-7/18/2026,France,England,,,FIFA World Cup,Miami Gardens,United States,True
+7/19/2026,Spain,Argentina,1,0,FIFA World Cup,East Rutherford,United States,True
+7/18/2026,France,England,4,6,FIFA World Cup,Miami Gardens,United States,True
 7/15/2026,England,Argentina,1,2,FIFA World Cup,Atlanta,United States,True
 7/14/2026,France,Spain,0,2,FIFA World Cup,East Rutherford,United States,True
 7/11/2026,Argentina,Switzerland,1,1,FIFA World Cup,Kansas City,United States,True
