@@ -217,6 +217,6 @@ stan_models/n_poisson_ranking
 data/new_results.csv
 
 # Local per-phase snapshot metrics (CSV-only analysis outputs)
-analysis/artifacts/snapshots/**/*.csv
+analysis/artifacts/
 # Local results and models 
 analysis/.runtime

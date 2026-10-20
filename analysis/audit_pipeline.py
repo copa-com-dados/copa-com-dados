@@ -206,28 +206,36 @@ def working_directory(path: str | Path) -> Iterator[None]:
 
 
 @contextlib.contextmanager
-def _shared_ranking_priors(project_root: Path) -> Iterator[None]:
-    """Use the canonical ranking file while a snapshot runs in its runtime.
+def _shared_training_inputs(project_root: Path) -> Iterator[None]:
+    """Read immutable model inputs from the project root during a runtime fit.
 
-    Snapshot runtimes execute code whose ranking path is relative to the
-    working directory. Redirecting that one read avoids copying the identical
-    2022 ranking CSV into every phase runtime; the canonical file is
-    ``analysis/../data/raw/fifa_ranking_2022.csv``.
+    The trainer uses relative paths for its input files and for posterior
+    outputs. This narrow redirection changes only its input reads: the shared
+    results and ranking files remain in ``data/`` at the project root, while
+    relative posterior paths continue to resolve inside ``analysis/.runtime``.
     """
     from src.simulations import analyze_matchup_events
 
+    results_path = project_root / "data" / "results.csv"
     canonical_path = project_root / "data" / "raw" / "fifa_ranking_2022.csv"
-    if not canonical_path.is_file():
-        raise FileNotFoundError(f"Required ranking file is missing: {canonical_path}")
+    for path in (results_path, canonical_path):
+        if not path.is_file():
+            raise FileNotFoundError(f"Required model input is missing: {path}")
+    original_prepare_cycle_data = analyze_matchup_events.prepare_cycle_data
     original_loader = analyze_matchup_events.load_ranking_priors
+
+    def prepare_with_shared_results(_: str | Path, *args: Any, **kwargs: Any) -> Any:
+        return original_prepare_cycle_data(str(results_path), *args, **kwargs)
 
     def load_shared_ranking_priors(_: str | Path, teams: Sequence[str]) -> np.ndarray:
         return original_loader(canonical_path, list(teams))
 
+    analyze_matchup_events.prepare_cycle_data = prepare_with_shared_results
     analyze_matchup_events.load_ranking_priors = load_shared_ranking_priors
     try:
         yield
     finally:
+        analyze_matchup_events.prepare_cycle_data = original_prepare_cycle_data
         analyze_matchup_events.load_ranking_priors = original_loader
 
 
@@ -739,16 +747,13 @@ def _copy_if_changed(source: Path, destination: Path) -> None:
 def prepare_isolated_runtime(project_root: str | Path, snapshot_id: str) -> Path:
     """Create the per-snapshot directory used by the unmodified project code.
 
-    The project modules use relative ``data/`` and ``stan_models/`` paths. A
-    private copy of just those inputs prevents model caches, Stan binaries and
-    generated files from being written to the project's original directories.
+    The Stan source and generated posterior archives remain isolated in the
+    runtime. Immutable match inputs are read from the project-root ``data/``
+    directory, so no copies of them are created for individual snapshots.
     """
     root = find_project_root(project_root)
     runtime = analysis_root(root) / ".runtime" / snapshot_id
     copies = {
-        root / "data" / "results.csv": runtime / "data" / "results.csv",
-        root / "data" / "shootouts.csv": runtime / "data" / "shootouts.csv",
-        root / "data" / "aet_winners.csv": runtime / "data" / "aet_winners.csv",
         root / "stan_models" / "n_poisson_ranking.stan": runtime
         / "stan_models"
         / "n_poisson_ranking.stan",
@@ -757,7 +762,7 @@ def prepare_isolated_runtime(project_root: str | Path, snapshot_id: str) -> Path
         if not source.is_file():
             raise FileNotFoundError(f"Required project input is missing: {source}")
         _copy_if_changed(source, destination)
-    _mkdir(runtime / "data" / "outputs" / "models")
+    _mkdir(runtime / "models")
     return runtime
 
 
@@ -1252,12 +1257,18 @@ def generate_snapshot(
     _mkdir(destination)
     runtime = prepare_isolated_runtime(root, snapshot.snapshot_id)
     start = time.perf_counter()
-    with working_directory(runtime), _shared_ranking_priors(root):
-        # Import inside the isolated context: project code retains its original
-        # relative-path behaviour, while all writes land under analysis/.
+    from src.simulations.analyze_matchup_events import load_known_state, train_model_up_to
+
+    # This routine reads only fixed inputs, so it can run directly against the
+    # canonical data directory without creating any runtime files.
+    with working_directory(root):
+        known_results, known_knockout_winners = load_known_state(snapshot.cutoff_date)
+
+    with working_directory(runtime), _shared_training_inputs(root):
+        # The trainer keeps its original relative output path, which resolves
+        # under analysis/.runtime, while its input reads are redirected above.
         from src.data import prepare_cycle_data
         from src.model.bayesian import BayesianDixonColesModel
-        from src.simulations.analyze_matchup_events import load_known_state, train_model_up_to
         from src.tournament.bayesian import BayesianWorldCup2026
 
         model_path_relative = train_model_up_to(
@@ -1266,18 +1277,17 @@ def generate_snapshot(
         )
         model_path = (runtime / model_path_relative).resolve()
         model = BayesianDixonColesModel(model_path)
-        known_results, known_knockout_winners = load_known_state(snapshot.cutoff_date)
         simulator = BayesianWorldCup2026(
             model,
             seed=seed,
             known_results=known_results,
             known_ko_winners=known_knockout_winners,
-            schedule_path="data/results.csv",
+            schedule_path=root / "data" / "results.csv",
             export_all_matchups=False,
         )
         tournament_result = simulator.simulate(n=n_sim)
         training_data, training_teams, _ = prepare_cycle_data(
-            "data/results.csv",
+            root / "data" / "results.csv",
             DEFAULT_START_DATE,
             end_date=snapshot.cutoff_date,
             apply_decay=True,
@@ -1287,7 +1297,7 @@ def generate_snapshot(
             model.draws,
             n_sim=n_sim,
             project_root=root,
-            results_path="data/results.csv",
+            results_path=root / "data" / "results.csv",
             seed=seed,
         )
         stage_probabilities = _stage_probability_table(tournament_result, root)
@@ -1439,7 +1449,7 @@ def run_parameter_trajectory(
         else:
             runtime = prepare_isolated_runtime(root, f"parameter_trajectory_{trajectory_id}")
             started = time.perf_counter()
-            with working_directory(runtime), _shared_ranking_priors(root):
+            with working_directory(runtime), _shared_training_inputs(root):
                 from src.model.bayesian import BayesianDixonColesModel
                 from src.simulations.analyze_matchup_events import train_model_up_to
 
